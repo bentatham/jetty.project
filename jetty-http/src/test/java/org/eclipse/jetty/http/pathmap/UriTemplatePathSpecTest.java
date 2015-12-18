@@ -16,7 +16,7 @@
 //  ========================================================================
 //
 
-package org.eclipse.jetty.websocket.jsr356.server.pathmap;
+package org.eclipse.jetty.http.pathmap;
 
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
@@ -25,18 +25,16 @@ import static org.junit.Assert.assertThat;
 
 import java.util.Map;
 
-import org.eclipse.jetty.websocket.server.pathmap.PathSpec;
-import org.eclipse.jetty.websocket.server.pathmap.PathSpecGroup;
 import org.junit.Test;
 
 /**
- * Tests for ServerEndpoint Path Param / URI Template Path Specs
+ * Tests for URI Template Path Specs
  */
-public class WebSocketPathSpecTest
+public class UriTemplatePathSpecTest
 {
-    private void assertDetectedVars(WebSocketPathSpec spec, String... expectedVars)
+    private void assertDetectedVars(UriTemplatePathSpec spec, String... expectedVars)
     {
-        String prefix = String.format("Spec(\"%s\")",spec.getPathSpec());
+        String prefix = String.format("Spec(\"%s\")",spec.getDeclaration());
         assertEquals(prefix + ".variableCount",expectedVars.length,spec.getVariableCount());
         assertEquals(prefix + ".variable.length",expectedVars.length,spec.getVariables().length);
         for (int i = 0; i < expectedVars.length; i++)
@@ -47,21 +45,21 @@ public class WebSocketPathSpecTest
 
     private void assertMatches(PathSpec spec, String path)
     {
-        String msg = String.format("Spec(\"%s\").matches(\"%s\")",spec.getPathSpec(),path);
+        String msg = String.format("Spec(\"%s\").matches(\"%s\")",spec.getDeclaration(),path);
         assertThat(msg,spec.matches(path),is(true));
     }
 
     private void assertNotMatches(PathSpec spec, String path)
     {
-        String msg = String.format("!Spec(\"%s\").matches(\"%s\")",spec.getPathSpec(),path);
+        String msg = String.format("!Spec(\"%s\").matches(\"%s\")",spec.getDeclaration(),path);
         assertThat(msg,spec.matches(path),is(false));
     }
 
     @Test
     public void testDefaultPathSpec()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/");
-        assertEquals("Spec.pathSpec","/",spec.getPathSpec());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/");
+        assertEquals("Spec.pathSpec","/",spec.getDeclaration());
         assertEquals("Spec.pattern","^/$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",1,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.EXACT,spec.getGroup());
@@ -73,8 +71,8 @@ public class WebSocketPathSpecTest
     @Test
     public void testExactOnePathSpec()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/a");
-        assertEquals("Spec.pathSpec","/a",spec.getPathSpec());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/a");
+        assertEquals("Spec.pathSpec","/a",spec.getDeclaration());
         assertEquals("Spec.pattern","^/a$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",1,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.EXACT,spec.getGroup());
@@ -91,14 +89,14 @@ public class WebSocketPathSpecTest
     @Test
     public void testExactPathSpec_TestWebapp()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/javax.websocket/");
-        assertEquals("Spec.pathSpec","/javax.websocket/",spec.getPathSpec());
-        assertEquals("Spec.pattern","^/javax\\.websocket/$",spec.getPattern().pattern());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/deep.thought/");
+        assertEquals("Spec.pathSpec","/deep.thought/",spec.getDeclaration());
+        assertEquals("Spec.pattern","^/deep\\.thought/$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",1,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.EXACT,spec.getGroup());
         
-        assertMatches(spec,"/javax.websocket/");
-        assertNotMatches(spec,"/javax.websocket");
+        assertMatches(spec,"/deep.thought/");
+        assertNotMatches(spec,"/deep.thought");
 
         assertEquals("Spec.variableCount",0,spec.getVariableCount());
         assertEquals("Spec.variable.length",0,spec.getVariables().length);
@@ -107,8 +105,8 @@ public class WebSocketPathSpecTest
     @Test
     public void testExactTwoPathSpec()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/a/b");
-        assertEquals("Spec.pathSpec","/a/b",spec.getPathSpec());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/a/b");
+        assertEquals("Spec.pathSpec","/a/b",spec.getDeclaration());
         assertEquals("Spec.pattern","^/a/b$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",2,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.EXACT,spec.getGroup());
@@ -126,8 +124,8 @@ public class WebSocketPathSpecTest
     @Test
     public void testMiddleVarPathSpec()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/a/{var}/c");
-        assertEquals("Spec.pathSpec","/a/{var}/c",spec.getPathSpec());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/a/{var}/c");
+        assertEquals("Spec.pathSpec","/a/{var}/c",spec.getDeclaration());
         assertEquals("Spec.pattern","^/a/([^/]+)/c$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",3,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.MIDDLE_GLOB,spec.getGroup());
@@ -150,8 +148,8 @@ public class WebSocketPathSpecTest
     @Test
     public void testOneVarPathSpec()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/a/{foo}");
-        assertEquals("Spec.pathSpec","/a/{foo}",spec.getPathSpec());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/a/{foo}");
+        assertEquals("Spec.pathSpec","/a/{foo}",spec.getDeclaration());
         assertEquals("Spec.pattern","^/a/([^/]+)$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",2,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.PREFIX_GLOB,spec.getGroup());
@@ -171,8 +169,8 @@ public class WebSocketPathSpecTest
     @Test
     public void testOneVarSuffixPathSpec()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/{var}/b/c");
-        assertEquals("Spec.pathSpec","/{var}/b/c",spec.getPathSpec());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/{var}/b/c");
+        assertEquals("Spec.pathSpec","/{var}/b/c",spec.getDeclaration());
         assertEquals("Spec.pattern","^/([^/]+)/b/c$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",3,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.SUFFIX_GLOB,spec.getGroup());
@@ -195,8 +193,8 @@ public class WebSocketPathSpecTest
     @Test
     public void testTwoVarComplexInnerPathSpec()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/a/{var1}/c/{var2}/e");
-        assertEquals("Spec.pathSpec","/a/{var1}/c/{var2}/e",spec.getPathSpec());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/a/{var1}/c/{var2}/e");
+        assertEquals("Spec.pathSpec","/a/{var1}/c/{var2}/e",spec.getDeclaration());
         assertEquals("Spec.pattern","^/a/([^/]+)/c/([^/]+)/e$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",5,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.MIDDLE_GLOB,spec.getGroup());
@@ -218,8 +216,8 @@ public class WebSocketPathSpecTest
     @Test
     public void testTwoVarComplexOuterPathSpec()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/{var1}/b/{var2}/{var3}");
-        assertEquals("Spec.pathSpec","/{var1}/b/{var2}/{var3}",spec.getPathSpec());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/{var1}/b/{var2}/{var3}");
+        assertEquals("Spec.pathSpec","/{var1}/b/{var2}/{var3}",spec.getDeclaration());
         assertEquals("Spec.pattern","^/([^/]+)/b/([^/]+)/([^/]+)$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",4,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.MIDDLE_GLOB,spec.getGroup());
@@ -242,8 +240,8 @@ public class WebSocketPathSpecTest
     @Test
     public void testTwoVarPrefixPathSpec()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/a/{var1}/{var2}");
-        assertEquals("Spec.pathSpec","/a/{var1}/{var2}",spec.getPathSpec());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/a/{var1}/{var2}");
+        assertEquals("Spec.pathSpec","/a/{var1}/{var2}",spec.getDeclaration());
         assertEquals("Spec.pattern","^/a/([^/]+)/([^/]+)$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",3,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.PREFIX_GLOB,spec.getGroup());
@@ -265,8 +263,8 @@ public class WebSocketPathSpecTest
     @Test
     public void testVarOnlyPathSpec()
     {
-        WebSocketPathSpec spec = new WebSocketPathSpec("/{var1}");
-        assertEquals("Spec.pathSpec","/{var1}",spec.getPathSpec());
+        UriTemplatePathSpec spec = new UriTemplatePathSpec("/{var1}");
+        assertEquals("Spec.pathSpec","/{var1}",spec.getDeclaration());
         assertEquals("Spec.pattern","^/([^/]+)$",spec.getPattern().pattern());
         assertEquals("Spec.pathDepth",1,spec.getPathDepth());
         assertEquals("Spec.group",PathSpecGroup.PREFIX_GLOB,spec.getGroup());

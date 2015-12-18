@@ -16,14 +16,19 @@
 //  ========================================================================
 //
 
-package org.eclipse.jetty.websocket.server.pathmap;
+package org.eclipse.jetty.http.pathmap;
 
 /**
  * Types of path spec groups.
  * <p>
  * This is used to facilitate proper pathspec search order.
  * <p>
- * Search Order: {@link PathSpecGroup#ordinal()} [increasin], {@link PathSpec#specLength} [decreasing], {@link PathSpec#pathSpec} [natural sort order]
+ * Search Order: 
+ * <ol>
+ * <li>{@link PathSpecGroup#ordinal()} [increasing]</li>
+ * <li>{@link PathSpec#specLength} [decreasing]</li>
+ * <li>{@link PathSpec#pathSpec} [natural sort order]</li>
+ * </ol>
  */
 public enum PathSpecGroup
 {
@@ -38,7 +43,7 @@ public enum PathSpecGroup
      * 
      * <pre>
      *   "^/downloads/[^/]*.zip$"  - regex spec
-     *   "/a/{var}/c"              - websocket spec
+     *   "/a/{var}/c"              - uri-template spec
      * </pre>
      * 
      * Note: there is no known servlet spec variant of this kind of path spec
@@ -52,8 +57,8 @@ public enum PathSpecGroup
      *   "/downloads/*"          - servlet spec
      *   "/api/*"                - servlet spec
      *   "^/rest/.*$"            - regex spec
-     *   "/bookings/{guest-id}"  - websocket spec
-     *   "/rewards/{vip-level}"  - websocket spec
+     *   "/bookings/{guest-id}"  - uri-template spec
+     *   "/rewards/{vip-level}"  - uri-template spec
      * </pre>
      */
     PREFIX_GLOB,
@@ -66,17 +71,31 @@ public enum PathSpecGroup
      *   "^.*\.zip$"   - regex spec
      * </pre>
      * 
-     * Note: there is no known websocket spec variant of this kind of path spec
+     * Note: there is no known uri-template spec variant of this kind of path spec
      */
     SUFFIX_GLOB,
     /**
-     * The default spec for accessing the Root and/or Default behavior.
+     * The root spec for accessing the Root behavior.
      * 
      * <pre>
-     *   "/"           - servlet spec   (Default Servlet)
-     *   "/"           - websocket spec (Root Context)
-     *   "^/$"         - regex spec     (Root Context)
+     *   ""           - servlet spec       (Root Servlet)
+     *   null         - servlet spec       (Root Servlet)
      * </pre>
+     * 
+     * Note: there is no known uri-template spec variant of this kind of path spec
      */
-    DEFAULT;
+    ROOT,
+    /**
+     * The default spec for accessing the Default path behavior.
+     * 
+     * <pre>
+     *   "/"           - servlet spec      (Default Servlet)
+     *   "/"           - uri-template spec (Root Context)
+     *   "^/$"         - regex spec        (Root Context)
+     * </pre>
+     * 
+     * Per Servlet Spec, pathInfo is always null for these specs.
+     * If nothing above matches, then default will match.
+     */
+    DEFAULT,
 }

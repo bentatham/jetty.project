@@ -16,7 +16,7 @@
 //  ========================================================================
 //
 
-package org.eclipse.jetty.websocket.jsr356.server.pathmap;
+package org.eclipse.jetty.http.pathmap;
 
 import static org.junit.Assert.fail;
 
@@ -33,7 +33,7 @@ import org.junit.runners.Parameterized.Parameters;
  * Tests for bad path specs on ServerEndpoint Path Param / URI Template
  */
 @RunWith(Parameterized.class)
-public class WebSocketPathSpecBadSpecsTest
+public class UriTemplatePathSpecBadSpecsTest
 {
     private static void bad(List<String[]> data, String str)
     {
@@ -65,7 +65,7 @@ public class WebSocketPathSpecBadSpecsTest
 
     private String pathSpec;
 
-    public WebSocketPathSpecBadSpecsTest(String pathSpec)
+    public UriTemplatePathSpecBadSpecsTest(String pathSpec)
     {
         this.pathSpec = pathSpec;
     }
@@ -75,7 +75,7 @@ public class WebSocketPathSpecBadSpecsTest
     {
         try
         {
-            new WebSocketPathSpec(this.pathSpec);
+            new UriTemplatePathSpec(this.pathSpec);
             fail("Expected IllegalArgumentException for a bad PathParam pathspec on: " + pathSpec);
         }
         catch (IllegalArgumentException e)

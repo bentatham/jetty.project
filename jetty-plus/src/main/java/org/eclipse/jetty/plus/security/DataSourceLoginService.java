@@ -73,6 +73,27 @@ public class DataSourceLoginService extends MappedLoginService
     private String _userSql;
     private String _roleSql;
     private boolean _createTables = false;
+    
+    
+    /**
+     * DBUser
+     */
+    public class DBUser extends KnownUser
+    {
+        private int _key;
+        
+        public DBUser(String name, Credential credential, int key)
+        {
+            super(name, credential);
+            _key = key;
+        }
+        
+        public int getKey ()
+        {
+            return _key;
+        }
+        
+    }
 
     /* ------------------------------------------------------------ */
     public DataSourceLoginService()
@@ -290,13 +311,13 @@ public class DataSourceLoginService extends MappedLoginService
      *
      * @param userName the user name
      */
-    @Override
+    @Deprecated
     protected UserIdentity loadUser (String userName)
     {
         try
         {
             try (Connection connection = getConnection();
-                 PreparedStatement statement1 = connection.prepareStatement(_userSql))
+                    PreparedStatement statement1 = connection.prepareStatement(_userSql))
             {
                 statement1.setObject(1, userName);
                 try (ResultSet rs1 = statement1.executeQuery())
@@ -305,19 +326,20 @@ public class DataSourceLoginService extends MappedLoginService
                     {
                         int key = rs1.getInt(_userTableKey);
                         String credentials = rs1.getString(_userTablePasswordField);
-                        List<String> roles = new ArrayList<String>();
-                        try (PreparedStatement statement2 = connection.prepareStatement(_roleSql))
-                        {
-                            statement2.setInt(1, key);
-                            try (ResultSet rs2 = statement2.executeQuery())
+                       
+                            List<String> roles = new ArrayList<String>();
+                            try (PreparedStatement statement2 = connection.prepareStatement(_roleSql))
                             {
-                                while (rs2.next())
+                                statement2.setInt(1, key);
+                                try (ResultSet rs2 = statement2.executeQuery())
                                 {
-                                    roles.add(rs2.getString(_roleTableRoleField));
+                                    while (rs2.next())
+                                    {
+                                        roles.add(rs2.getString(_roleTableRoleField));
+                                    }
                                 }
                             }
-                        }
-                        return putUser(userName, Credential.getCredential(credentials), roles.toArray(new String[roles.size()]));
+                            return putUser(userName,  Credential.getCredential(credentials), roles.toArray(new String[roles.size()]));
                     }
                 }
             }
@@ -334,6 +356,77 @@ public class DataSourceLoginService extends MappedLoginService
     }
     
     
+    /** 
+     * @see org.eclipse.jetty.security.MappedLoginService#loadUserInfo(java.lang.String)
+     */
+    public KnownUser loadUserInfo (String username)
+    {
+        try
+        {
+            try (Connection connection = getConnection();
+                    PreparedStatement statement1 = connection.prepareStatement(_userSql))
+            {
+                statement1.setObject(1, username);
+                try (ResultSet rs1 = statement1.executeQuery())
+                {
+                    if (rs1.next())
+                    {
+                        int key = rs1.getInt(_userTableKey);
+                        String credentials = rs1.getString(_userTablePasswordField);
+                        
+                        return new DBUser(username, Credential.getCredential(credentials), key);
+                    }
+                }
+            }
+        }
+        catch (NamingException e)
+        {
+            LOG.warn("No datasource for "+_jndiName, e);
+        }
+        catch (SQLException e)
+        {
+            LOG.warn("Problem loading user info for "+username, e);
+        }
+        return null;
+    }
+    
+    /** 
+     * @see org.eclipse.jetty.security.MappedLoginService#loadRoleInfo(org.eclipse.jetty.security.MappedLoginService.KnownUser)
+     */
+    public String[] loadRoleInfo (KnownUser user)
+    {
+        DBUser dbuser = (DBUser)user;
+
+        try
+        {
+            try (Connection connection = getConnection();
+                    PreparedStatement statement2 = connection.prepareStatement(_roleSql))
+            {
+
+                List<String> roles = new ArrayList<String>();
+
+                statement2.setInt(1, dbuser.getKey());
+                try (ResultSet rs2 = statement2.executeQuery())
+                {
+                    while (rs2.next())
+                    {
+                        roles.add(rs2.getString(_roleTableRoleField));
+                    }
+                    
+                    return roles.toArray(new String[roles.size()]);
+                }
+            }
+        }
+        catch (NamingException e)
+        {
+            LOG.warn("No datasource for "+_jndiName, e);
+        }
+        catch (SQLException e)
+        {
+            LOG.warn("Problem loading user info for "+user.getName(), e);
+        }
+        return null;
+    }
     
     /* ------------------------------------------------------------ */
     @Override
@@ -401,8 +494,6 @@ public class DataSourceLoginService extends MappedLoginService
 
         prepareTables();
     }
-
-
 
     private void prepareTables()
     throws NamingException, SQLException
@@ -504,12 +595,10 @@ public class DataSourceLoginService extends MappedLoginService
         }
     }
 
-
     private Connection getConnection ()
     throws NamingException, SQLException
     {
         initDb();
         return _datasource.getConnection();
     }
-
 }

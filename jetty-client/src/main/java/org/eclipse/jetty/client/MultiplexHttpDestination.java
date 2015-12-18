@@ -18,6 +18,7 @@
 
 package org.eclipse.jetty.client;
 
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.eclipse.jetty.client.api.Connection;
@@ -27,11 +28,23 @@ import org.eclipse.jetty.util.Promise;
 public abstract class MultiplexHttpDestination<C extends Connection> extends HttpDestination implements Promise<Connection>
 {
     private final AtomicReference<ConnectState> connect = new AtomicReference<>(ConnectState.DISCONNECTED);
+    private final AtomicInteger requestsPerConnection = new AtomicInteger();
+    private int maxRequestsPerConnection = 1024;
     private C connection;
 
     protected MultiplexHttpDestination(HttpClient client, Origin origin)
     {
         super(client, origin);
+    }
+
+    public int getMaxRequestsPerConnection()
+    {
+        return maxRequestsPerConnection;
+    }
+
+    public void setMaxRequestsPerConnection(int maxRequestsPerConnection)
+    {
+        this.maxRequestsPerConnection = maxRequestsPerConnection;
     }
 
     @Override
@@ -76,12 +89,12 @@ public abstract class MultiplexHttpDestination<C extends Connection> extends Htt
         C connection = this.connection = (C)result;
         if (connect.compareAndSet(ConnectState.CONNECTING, ConnectState.CONNECTED))
         {
-            process(connection);
+            send();
         }
         else
         {
             connection.close();
-            failed(new IllegalStateException());
+            failed(new IllegalStateException("Invalid connection state " + connect));
         }
     }
 
@@ -94,29 +107,63 @@ public abstract class MultiplexHttpDestination<C extends Connection> extends Htt
 
     protected boolean process(final C connection)
     {
-        HttpClient client = getHttpClient();
-        final HttpExchange exchange = getHttpExchanges().poll();
-        if (LOG.isDebugEnabled())
-            LOG.debug("Processing {} on {}", exchange, connection);
-        if (exchange == null)
-            return false;
+        while (true)
+        {
+            int max = getMaxRequestsPerConnection();
+            int count = requestsPerConnection.get();
+            int next = count + 1;
+            if (next > max)
+                return false;
 
-        final Request request = exchange.getRequest();
-        Throwable cause = request.getAbortCause();
-        if (cause != null)
-        {
-            if (LOG.isDebugEnabled())
-                LOG.debug("Aborted before processing {}: {}", exchange, cause);
-            // It may happen that the request is aborted before the exchange
-            // is created. Aborting the exchange a second time will result in
-            // a no-operation, so we just abort here to cover that edge case.
-            exchange.abort(cause);
+            if (requestsPerConnection.compareAndSet(count, next))
+            {
+                HttpExchange exchange = getHttpExchanges().poll();
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Processing {}/{} {} on {}", next, max, exchange, connection);
+                if (exchange == null)
+                {
+                    requestsPerConnection.decrementAndGet();
+                    return false;
+                }
+
+                final Request request = exchange.getRequest();
+                Throwable cause = request.getAbortCause();
+                if (cause != null)
+                {
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Aborted before processing {}: {}", exchange, cause);
+                    // It may happen that the request is aborted before the exchange
+                    // is created. Aborting the exchange a second time will result in
+                    // a no-operation, so we just abort here to cover that edge case.
+                    exchange.abort(cause);
+                    requestsPerConnection.decrementAndGet();
+                }
+                else
+                {
+                    SendFailure result = send(connection, exchange);
+                    if (result != null)
+                    {
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Send failed {} for {}", result, exchange);
+                        if (result.retry)
+                        {
+                            if (enqueue(getHttpExchanges(), exchange))
+                                return true;
+                        }
+
+                        request.abort(result.failure);
+                    }
+                }
+                return getHttpExchanges().peek() != null;
+            }
         }
-        else
-        {
-            send(connection, exchange);
-        }
-        return true;
+    }
+
+    @Override
+    public void release(Connection connection)
+    {
+        requestsPerConnection.decrementAndGet();
+        send();
     }
 
     @Override
@@ -144,7 +191,7 @@ public abstract class MultiplexHttpDestination<C extends Connection> extends Htt
         }
     }
 
-    protected abstract void send(C connection, HttpExchange exchange);
+    protected abstract SendFailure send(C connection, HttpExchange exchange);
 
     private enum ConnectState
     {

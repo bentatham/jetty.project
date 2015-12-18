@@ -6,7 +6,7 @@
     <version>25</version>
   </parent>
   <artifactId>jetty-project</artifactId>
-  <version>9.3.6-SNAPSHOT</version>
+  <version>9.3.7-SNAPSHOT</version>
   <name>Jetty :: Project</name>
   <url>http://www.eclipse.org/jetty</url>
   <packaging>pom</packaging>
@@ -975,7 +975,18 @@
         <alpn.version>8.1.5.v20150921</alpn.version>
       </properties>
     </profile>
-
+    <profile>
+      <id>8u65</id>
+      <activation>
+        <property>
+          <name>java.version</name>
+          <value>1.8.0_65</value>
+        </property>
+      </activation>
+      <properties>
+        <alpn.version>8.1.6.v20151105</alpn.version>
+      </properties>
+    </profile>
     <profile>
       <id>8u66</id>
       <activation>
@@ -985,7 +996,7 @@
         </property>
       </activation>
       <properties>
-        <alpn.version>8.1.5.v20150921</alpn.version>
+        <alpn.version>8.1.6.v20151105</alpn.version>
       </properties>
     </profile>
   </profiles>

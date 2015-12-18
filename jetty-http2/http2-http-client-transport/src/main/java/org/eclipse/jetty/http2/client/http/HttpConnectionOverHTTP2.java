@@ -25,6 +25,7 @@ import org.eclipse.jetty.client.HttpChannel;
 import org.eclipse.jetty.client.HttpConnection;
 import org.eclipse.jetty.client.HttpDestination;
 import org.eclipse.jetty.client.HttpExchange;
+import org.eclipse.jetty.client.SendFailure;
 import org.eclipse.jetty.http2.ErrorCode;
 import org.eclipse.jetty.http2.api.Session;
 import org.eclipse.jetty.util.Callback;
@@ -41,32 +42,48 @@ public class HttpConnectionOverHTTP2 extends HttpConnection
         this.session = session;
     }
 
+    public Session getSession()
+    {
+        return session;
+    }
+
     @Override
-    protected void send(HttpExchange exchange)
+    protected SendFailure send(HttpExchange exchange)
     {
         normalizeRequest(exchange.getRequest());
+
         // One connection maps to N channels, so for each exchange we create a new channel.
-        HttpChannel channel = new HttpChannelOverHTTP2(getHttpDestination(), this, session);
+        HttpChannel channel = newHttpChannel();
         channels.add(channel);
-        if (channel.associate(exchange))
-            channel.send();
-        else
-            channel.release();
+
+        return send(channel, exchange);
+    }
+
+    protected HttpChannelOverHTTP2 newHttpChannel()
+    {
+        return new HttpChannelOverHTTP2(getHttpDestination(), this, getSession());
     }
 
     protected void release(HttpChannel channel)
     {
         channels.remove(channel);
+        getHttpDestination().release(this);
     }
 
     @Override
     public void close()
     {
+        close(new AsynchronousCloseException());
+    }
+
+    @Override
+    protected void close(Throwable failure)
+    {
         // First close then abort, to be sure that the connection cannot be reused
         // from an onFailure() handler or by blocking code waiting for completion.
         getHttpDestination().close(this);
-        session.close(ErrorCode.NO_ERROR.code, null, Callback.NOOP);
-        abort(new AsynchronousCloseException());
+        session.close(ErrorCode.NO_ERROR.code, failure.getMessage(), Callback.NOOP);
+        abort(failure);
     }
 
     private void abort(Throwable failure)
@@ -78,5 +95,14 @@ public class HttpConnectionOverHTTP2 extends HttpConnection
                 exchange.getRequest().abort(failure);
         }
         channels.clear();
+    }
+
+    @Override
+    public String toString()
+    {
+        return String.format("%s@%h[%s]",
+                getClass().getSimpleName(),
+                this,
+                session);
     }
 }

@@ -535,7 +535,13 @@ public abstract class HTTP2Session implements ISession, Parser.Listener
                 {
                     if (closed.compareAndSet(current, CloseState.LOCALLY_CLOSED))
                     {
-                        byte[] payload = reason == null ? null : reason.getBytes(StandardCharsets.UTF_8);
+                        byte[] payload = null;
+                        if (reason != null)
+                        {
+                            // Trim the reason to avoid attack vectors.
+                            reason = reason.substring(0, Math.min(reason.length(), 32));
+                            payload = reason.getBytes(StandardCharsets.UTF_8);
+                        }
                         GoAwayFrame frame = new GoAwayFrame(lastStreamId.get(), error, payload);
                         control(null, callback, frame);
                         return true;
@@ -618,11 +624,11 @@ public abstract class HTTP2Session implements ISession, Parser.Listener
                 break;
         }
 
-        IStream stream = newStream(streamId);
+        IStream stream = newStream(streamId, true);
         if (streams.putIfAbsent(streamId, stream) == null)
         {
             stream.setIdleTimeout(getStreamIdleTimeout());
-            flowControl.onStreamCreated(stream, true);
+            flowControl.onStreamCreated(stream);
             if (LOG.isDebugEnabled())
                 LOG.debug("Created local {}", stream);
             return stream;
@@ -650,14 +656,14 @@ public abstract class HTTP2Session implements ISession, Parser.Listener
                 break;
         }
 
-        IStream stream = newStream(streamId);
+        IStream stream = newStream(streamId, false);
 
         // SPEC: duplicate stream is treated as connection error.
         if (streams.putIfAbsent(streamId, stream) == null)
         {
             updateLastStreamId(streamId);
             stream.setIdleTimeout(getStreamIdleTimeout());
-            flowControl.onStreamCreated(stream, false);
+            flowControl.onStreamCreated(stream);
             if (LOG.isDebugEnabled())
                 LOG.debug("Created remote {}", stream);
             return stream;
@@ -669,28 +675,29 @@ public abstract class HTTP2Session implements ISession, Parser.Listener
         }
     }
 
-    protected IStream newStream(int streamId)
+    protected IStream newStream(int streamId, boolean local)
     {
-        return new HTTP2Stream(scheduler, this, streamId);
+        return new HTTP2Stream(scheduler, this, streamId, local);
     }
 
     @Override
-    public void removeStream(IStream stream, boolean local)
+    public void removeStream(IStream stream)
     {
         IStream removed = streams.remove(stream.getId());
         if (removed != null)
         {
             assert removed == stream;
 
+            boolean local = stream.isLocal();
             if (local)
                 localStreamCount.decrementAndGet();
             else
                 remoteStreamCount.decrementAndGet();
 
-            flowControl.onStreamDestroyed(stream, local);
+            flowControl.onStreamDestroyed(stream);
 
             if (LOG.isDebugEnabled())
-                LOG.debug("Removed {}", stream);
+                LOG.debug("Removed {} {}", local ? "local" : "remote", stream);
         }
     }
 
@@ -825,30 +832,34 @@ public abstract class HTTP2Session implements ISession, Parser.Listener
      *   stuck because of TCP congestion), therefore we terminate.
      *   See {@link #onGoAway(GoAwayFrame)}.
      *
+     * @return true if the session has been closed, false otherwise
      * @see #onGoAway(GoAwayFrame)
      * @see #close(int, String, Callback)
      * @see #onShutdown()
      */
     @Override
-    public void onIdleTimeout()
+    public boolean onIdleTimeout()
     {
         switch (closed.get())
         {
             case NOT_CLOSED:
             {
-                // Real idle timeout, just close.
-                close(ErrorCode.NO_ERROR.code, "idle_timeout", Callback.NOOP);
-                break;
+                if (notifyIdleTimeout(this))
+                {
+                    close(ErrorCode.NO_ERROR.code, "idle_timeout", Callback.NOOP);
+                    return true;
+                }
+                return false;
             }
             case LOCALLY_CLOSED:
             case REMOTELY_CLOSED:
             {
                 abort(new TimeoutException());
-                break;
+                return true;
             }
             default:
             {
-                break;
+                return true;
             }
         }
     }
@@ -973,6 +984,19 @@ public abstract class HTTP2Session implements ISession, Parser.Listener
         }
     }
 
+    protected boolean notifyIdleTimeout(Session session)
+    {
+        try
+        {
+            return listener.onIdleTimeout(session);
+        }
+        catch (Throwable x)
+        {
+            LOG.info("Failure while notifying listener " + listener, x);
+            return true;
+        }
+    }
+
     protected void notifyFailure(Session session, Throwable failure)
     {
         try
@@ -988,8 +1012,16 @@ public abstract class HTTP2Session implements ISession, Parser.Listener
     @Override
     public String toString()
     {
-        return String.format("%s@%x{queueSize=%d,sendWindow=%s,recvWindow=%s,streams=%d,%s}", getClass().getSimpleName(),
-                hashCode(), flusher.getQueueSize(), sendWindow, recvWindow, streams.size(), closed);
+        return String.format("%s@%x{l:%s <-> r:%s,queueSize=%d,sendWindow=%s,recvWindow=%s,streams=%d,%s}",
+                getClass().getSimpleName(),
+                hashCode(),
+                getEndPoint().getLocalAddress(),
+                getEndPoint().getRemoteAddress(),
+                flusher.getQueueSize(),
+                sendWindow,
+                recvWindow,
+                streams.size(),
+                closed);
     }
 
     private class ControlEntry extends HTTP2Flusher.Entry
@@ -1058,7 +1090,7 @@ public abstract class HTTP2Session implements ISession, Parser.Listener
                 {
                     HeadersFrame headersFrame = (HeadersFrame)frame;
                     if (stream.updateClose(headersFrame.isEndStream(), true))
-                        removeStream(stream, true);
+                        removeStream(stream);
                     break;
                 }
                 case RST_STREAM:
@@ -1066,7 +1098,7 @@ public abstract class HTTP2Session implements ISession, Parser.Listener
                     if (stream != null)
                     {
                         stream.close();
-                        removeStream(stream, true);
+                        removeStream(stream);
                     }
                     break;
                 }
@@ -1173,7 +1205,7 @@ public abstract class HTTP2Session implements ISession, Parser.Listener
                 // Only now we can update the close state
                 // and eventually remove the stream.
                 if (stream.updateClose(dataFrame.isEndStream(), true))
-                    removeStream(stream, true);
+                    removeStream(stream);
                 callback.succeeded();
             }
         }

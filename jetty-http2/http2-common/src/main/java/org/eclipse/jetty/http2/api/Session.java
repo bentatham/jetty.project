@@ -134,11 +134,18 @@ public interface Session
     public interface Listener
     {
         /**
-         * <p>Callback method invoked when the preface has been received.</p>
+         * <p>Callback method invoked:</p>
+         * <ul>
+         *     <li>for clients, just before the preface is sent, to gather the
+         *     SETTINGS configuration options the client wants to send to the server;</li>
+         *     <li>for servers, just after having received the preface, to gather
+         *     the SETTINGS configuration options the server wants to send to the
+         *     client.</li>
+         * </ul>
          *
          * @param session the session
          * @return a (possibly empty or null) map containing SETTINGS configuration
-         * options that are sent after the preface.
+         * options to send.
          */
         public Map<Integer, Integer> onPreface(Session session);
 
@@ -194,6 +201,13 @@ public interface Session
         public void onClose(Session session, GoAwayFrame frame);
 
         /**
+         * <p>Callback method invoked when the idle timeout expired.</p>
+         * @param session the session
+         * @return whether the session should be closed
+         */
+        public boolean onIdleTimeout(Session session);
+
+        /**
          * <p>Callback method invoked when a failure has been detected for this session.</p>
          *
          * @param session the session
@@ -236,6 +250,12 @@ public interface Session
             @Override
             public void onClose(Session session, GoAwayFrame frame)
             {
+            }
+
+            @Override
+            public boolean onIdleTimeout(Session session)
+            {
+                return true;
             }
 
             @Override

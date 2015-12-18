@@ -23,8 +23,10 @@ import static org.junit.Assert.assertTrue;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -38,8 +40,10 @@ import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 
 import org.eclipse.jetty.http.DateGenerator;
+import org.eclipse.jetty.http.HttpContent;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.LocalConnector;
+import org.eclipse.jetty.server.ResourceContentFactory;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.AllowSymLinkAliasChecker;
 import org.eclipse.jetty.toolchain.test.FS;
@@ -47,6 +51,7 @@ import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
 import org.eclipse.jetty.toolchain.test.OS;
 import org.eclipse.jetty.toolchain.test.TestingDir;
 import org.eclipse.jetty.util.IO;
+import org.eclipse.jetty.util.resource.Resource;
 import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
@@ -409,13 +414,18 @@ public class DefaultServletTest
     }
 
     @Test
-    public void testResourceBase() throws Exception
+    public void testSymLinks() throws Exception
     {
         testdir.ensureEmpty();
         File resBase = testdir.getPathFile("docroot").toFile();
         FS.ensureDirExists(resBase);
-        File foobar = new File(resBase, "foobar.txt");
-        File link = new File(resBase, "link.txt");
+        File dir = new File(resBase,"dir");
+        File dirLink = new File(resBase,"dirlink");
+        File dirRLink = new File(resBase,"dirrlink");
+        FS.ensureDirExists(dir);
+        File foobar = new File(dir, "foobar.txt");
+        File link = new File(dir, "link.txt");
+        File rLink = new File(dir,"rlink.txt");
         createFile(foobar, "Foo Bar");
 
         String resBasePath = resBase.getAbsolutePath();
@@ -426,20 +436,43 @@ public class DefaultServletTest
 
         String response;
 
-        response = connector.getResponses("GET /context/foobar.txt HTTP/1.0\r\n\r\n");
+        response = connector.getResponses("GET /context/dir/foobar.txt HTTP/1.0\r\n\r\n");
         assertResponseContains("Foo Bar", response);
 
         if (!OS.IS_WINDOWS)
         {
             context.clearAliasChecks();
             
+            Files.createSymbolicLink(dirLink.toPath(),dir.toPath());
+            Files.createSymbolicLink(dirRLink.toPath(),new File("dir").toPath());
             Files.createSymbolicLink(link.toPath(),foobar.toPath());
-            response = connector.getResponses("GET /context/link.txt HTTP/1.0\r\n\r\n");
+            Files.createSymbolicLink(rLink.toPath(),new File("foobar.txt").toPath());
+            response = connector.getResponses("GET /context/dir/link.txt HTTP/1.0\r\n\r\n");
+            assertResponseContains("404", response);
+            response = connector.getResponses("GET /context/dir/rlink.txt HTTP/1.0\r\n\r\n");
+            assertResponseContains("404", response);
+            response = connector.getResponses("GET /context/dirlink/foobar.txt HTTP/1.0\r\n\r\n");
+            assertResponseContains("404", response);
+            response = connector.getResponses("GET /context/dirrlink/foobar.txt HTTP/1.0\r\n\r\n");
+            assertResponseContains("404", response);
+            response = connector.getResponses("GET /context/dirlink/link.txt HTTP/1.0\r\n\r\n");
+            assertResponseContains("404", response);
+            response = connector.getResponses("GET /context/dirrlink/rlink.txt HTTP/1.0\r\n\r\n");
             assertResponseContains("404", response);
             
             context.addAliasCheck(new AllowSymLinkAliasChecker());
             
-            response = connector.getResponses("GET /context/link.txt HTTP/1.0\r\n\r\n");
+            response = connector.getResponses("GET /context/dir/link.txt HTTP/1.0\r\n\r\n");
+            assertResponseContains("Foo Bar", response);
+            response = connector.getResponses("GET /context/dir/rlink.txt HTTP/1.0\r\n\r\n");
+            assertResponseContains("Foo Bar", response);
+            response = connector.getResponses("GET /context/dirlink/foobar.txt HTTP/1.0\r\n\r\n");
+            assertResponseContains("Foo Bar", response);
+            response = connector.getResponses("GET /context/dirrlink/foobar.txt HTTP/1.0\r\n\r\n");
+            assertResponseContains("Foo Bar", response);
+            response = connector.getResponses("GET /context/dirlink/link.txt HTTP/1.0\r\n\r\n");
+            assertResponseContains("Foo Bar", response);
+            response = connector.getResponses("GET /context/dirrlink/link.txt HTTP/1.0\r\n\r\n");
             assertResponseContains("Foo Bar", response);
         }
     }
@@ -492,6 +525,45 @@ public class DefaultServletTest
         }
     }
 
+    @Test
+    public void testDirectFromResourceHttpContent() throws Exception
+    {
+        if (!OS.IS_LINUX)
+            return;
+        
+        testdir.ensureEmpty();
+        File resBase = testdir.getPathFile("docroot").toFile();
+        FS.ensureDirExists(resBase);
+        context.setBaseResource(Resource.newResource(resBase));
+        
+        File index = new File(resBase, "index.html");
+        createFile(index, "<h1>Hello World</h1>");
+
+        ServletHolder defholder = context.addServlet(DefaultServlet.class, "/");
+        defholder.setInitParameter("dirAllowed", "true");
+        defholder.setInitParameter("redirectWelcome", "false");
+        defholder.setInitParameter("useFileMappedBuffer", "true");
+        defholder.setInitParameter("welcomeServlets", "exact");
+        defholder.setInitParameter("gzip", "false");
+        defholder.setInitParameter("resourceCache","resourceCache");
+
+        String response;
+
+        response = connector.getResponses("GET /context/index.html HTTP/1.0\r\n\r\n");
+        assertResponseContains("<h1>Hello World</h1>", response);
+        
+        ResourceContentFactory factory = (ResourceContentFactory)context.getServletContext().getAttribute("resourceCache");
+        
+        HttpContent content = factory.getContent("/index.html",200);
+        ByteBuffer buffer = content.getDirectBuffer();
+        Assert.assertTrue(buffer.isDirect());        
+        content = factory.getContent("/index.html",5);
+        buffer = content.getDirectBuffer();
+        Assert.assertTrue(buffer==null);        
+    }
+    
+    
+    
     @Test
     public void testRangeRequests() throws Exception
     {

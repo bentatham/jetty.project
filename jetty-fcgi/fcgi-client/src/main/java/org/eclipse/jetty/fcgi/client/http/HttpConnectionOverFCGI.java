@@ -24,13 +24,13 @@ import java.nio.channels.AsynchronousCloseException;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.HttpConnection;
 import org.eclipse.jetty.client.HttpDestination;
 import org.eclipse.jetty.client.HttpExchange;
+import org.eclipse.jetty.client.SendFailure;
 import org.eclipse.jetty.client.api.Connection;
 import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.client.api.Response;
@@ -82,15 +82,20 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         return destination;
     }
 
+    protected Flusher getFlusher()
+    {
+        return flusher;
+    }
+
     @Override
     public void send(Request request, Response.CompleteListener listener)
     {
         delegate.send(request, listener);
     }
 
-    protected void send(HttpExchange exchange)
+    protected SendFailure send(HttpExchange exchange)
     {
-        delegate.send(exchange);
+        return delegate.send(exchange);
     }
 
     @Override
@@ -187,14 +192,21 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
     @Override
     protected boolean onReadTimeout()
     {
-        close(new TimeoutException());
-        return false;
+        boolean close = delegate.onIdleTimeout();
+        if (!close && !isClosed())
+            fillInterested();
+        return close;
     }
 
     protected void release(HttpChannelOverFCGI channel)
     {
         channels.remove(channel.getRequest());
         destination.release(this);
+    }
+
+    public boolean isClosed()
+    {
+        return closed.get();
     }
 
     @Override
@@ -212,10 +224,10 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
             getHttpDestination().close(this);
             getEndPoint().shutdownOutput();
             if (LOG.isDebugEnabled())
-                LOG.debug("{} oshut", this);
+                LOG.debug("Shutdown {}", this);
             getEndPoint().close();
             if (LOG.isDebugEnabled())
-                LOG.debug("{} closed", this);
+                LOG.debug("Closed {}", this);
 
             abort(failure);
         }
@@ -270,6 +282,11 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         }
     }
 
+    protected HttpChannelOverFCGI newHttpChannel(int id, Request request)
+    {
+        return new HttpChannelOverFCGI(this, getFlusher(), id, request.getIdleTimeout());
+    }
+
     @Override
     public String toString()
     {
@@ -288,25 +305,29 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         }
 
         @Override
-        protected void send(HttpExchange exchange)
+        protected SendFailure send(HttpExchange exchange)
         {
             Request request = exchange.getRequest();
             normalizeRequest(request);
 
             // FCGI may be multiplexed, so create one channel for each request.
             int id = acquireRequest();
-            HttpChannelOverFCGI channel = new HttpChannelOverFCGI(HttpConnectionOverFCGI.this, flusher, id, request.getIdleTimeout());
+            HttpChannelOverFCGI channel = newHttpChannel(id, request);
             channels.put(id, channel);
-            if (channel.associate(exchange))
-                channel.send();
-            else
-                channel.release();
+
+            return send(channel, exchange);
         }
 
         @Override
         public void close()
         {
             HttpConnectionOverFCGI.this.close();
+        }
+
+        @Override
+        protected void close(Throwable failure)
+        {
+            HttpConnectionOverFCGI.this.close(failure);
         }
 
         @Override
@@ -374,9 +395,10 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
                                 close(x);
                             }
                         };
-                        if (!channel.content(buffer, callback))
-                            return true;
-                        return callback.tryComplete();
+                        // Do not short circuit these calls.
+                        boolean proceed = channel.content(buffer, callback);
+                        boolean async = callback.tryComplete();
+                        return !proceed || async;
                     }
                     else
                     {

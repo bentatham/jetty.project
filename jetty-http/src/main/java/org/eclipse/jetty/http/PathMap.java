@@ -26,10 +26,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.StringTokenizer;
-import java.util.function.BiFunction;
+import java.util.function.Predicate;
 
 import org.eclipse.jetty.util.ArrayTernaryTrie;
-import org.eclipse.jetty.util.RegexSet;
 import org.eclipse.jetty.util.Trie;
 import org.eclipse.jetty.util.URIUtil;
 
@@ -72,8 +71,10 @@ import org.eclipse.jetty.util.URIUtil;
  * This class is not synchronized.  If concurrent modifications are
  * possible then it should be synchronized at a higher level.
  * 
- * @param <O> the Map.Entry value type 
+ * @param <O> the Map.Entry value type
+ * @deprecated replaced with {@link org.eclipse.jetty.http.pathmap.PathMappings} (this class will be removed in Jetty 10) 
  */
+@Deprecated
 public class PathMap<O> extends HashMap<String,O>
 {
     /* ------------------------------------------------------------ */
@@ -592,9 +593,8 @@ public class PathMap<O> extends HashMap<String,O>
         }
     }
     
-    public static class PathSet extends AbstractSet<String>
+    public static class PathSet extends AbstractSet<String> implements Predicate<String>
     {
-        public static final BiFunction<PathSet,String,Boolean> MATCHER=(s,e)->{return s.containsMatch(e);};
         private final PathMap<Boolean> _map = new PathMap<>();
         
         @Override
@@ -627,12 +627,15 @@ public class PathMap<O> extends HashMap<String,O>
             return _map.containsKey(o); 
         }
         
+        @Override
+        public boolean test(String s)
+        {
+            return _map.containsMatch(s);
+        }
         
         public boolean containsMatch(String s) 
         { 
             return _map.containsMatch(s); 
         }
-        
-        
     }
 }

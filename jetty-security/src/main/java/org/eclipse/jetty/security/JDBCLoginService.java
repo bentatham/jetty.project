@@ -41,24 +41,17 @@ import org.eclipse.jetty.util.security.Credential;
 /* ------------------------------------------------------------ */
 /**
  * HashMapped User Realm with JDBC as data source. 
- * The login() method checks the inherited Map for the user. If the user is not
+ * The {@link #login(String, Object, ServletRequest)} method checks the inherited Map for the user. If the user is not
  * found, it will fetch details from the database and populate the inherited
- * Map. It then calls the superclass login() method to perform the actual
+ * Map. It then calls the superclass {@link #login(String, Object, ServletRequest)} method to perform the actual
  * authentication. Periodically (controlled by configuration parameter),
  * internal hashes are cleared. Caching can be disabled by setting cache refresh
  * interval to zero. Uses one database connection that is initialized at
- * startup. Reconnect on failures. authenticate() is 'synchronized'.
- * 
+ * startup. Reconnect on failures.
+ * <p> 
  * An example properties file for configuration is in
- * $JETTY_HOME/etc/jdbcRealm.properties
- * 
- * @version $Id: JDBCLoginService.java 4792 2009-03-18 21:55:52Z gregw $
- * 
- * 
- * 
- * 
+ * <code>${jetty.home}/etc/jdbcRealm.properties</code>
  */
-
 public class JDBCLoginService extends MappedLoginService
 {
     private static final Logger LOG = Log.getLogger(JDBCLoginService.class);
@@ -77,6 +70,26 @@ public class JDBCLoginService extends MappedLoginService
     protected String _userSql;
     protected String _roleSql;
 
+    
+    /**
+     * JDBCKnownUser
+     */
+    public class JDBCKnownUser extends KnownUser
+    {
+        int _userKey;
+        
+        public JDBCKnownUser(String name, Credential credential, int key)
+        {
+            super(name, credential);
+            _userKey = key;
+        }
+        
+        
+        public int getUserKey ()
+        {
+            return _userKey;
+        }
+    }
 
     /* ------------------------------------------------------------ */
     public JDBCLoginService()
@@ -231,7 +244,7 @@ public class JDBCLoginService extends MappedLoginService
     }
     
     /* ------------------------------------------------------------ */
-    @Override
+    @Deprecated
     protected UserIdentity loadUser(String username)
     {
         try
@@ -251,6 +264,8 @@ public class JDBCLoginService extends MappedLoginService
                     {
                         int key = rs1.getInt(_userTableKey);
                         String credentials = rs1.getString(_userTablePasswordField);
+
+
                         List<String> roles = new ArrayList<String>();
 
                         try (PreparedStatement stat2 = _con.prepareStatement(_roleSql))
@@ -262,7 +277,7 @@ public class JDBCLoginService extends MappedLoginService
                                     roles.add(rs2.getString(_roleTableRoleField));
                             }
                         }
-                        return putUser(username, credentials, roles.toArray(new String[roles.size()]));
+                        return putUser(username, Credential.getCredential(credentials), roles.toArray(new String[roles.size()]));
                     }
                 }
             }
@@ -274,11 +289,83 @@ public class JDBCLoginService extends MappedLoginService
         }
         return null;
     }
-    
-    /* ------------------------------------------------------------ */
-    protected UserIdentity putUser (String username, String credentials, String[] roles)
+
+
+    /** 
+     * @see org.eclipse.jetty.security.MappedLoginService#loadUserInfo(java.lang.String)
+     */
+    public KnownUser loadUserInfo (String username)
     {
-        return putUser(username, Credential.getCredential(credentials),roles);
+        try
+        {
+            if (null == _con) 
+                connectDatabase();
+
+            if (null == _con) 
+                throw new SQLException("Can't connect to database");
+
+            try (PreparedStatement stat1 = _con.prepareStatement(_userSql))
+            {
+                stat1.setObject(1, username);
+                try (ResultSet rs1 = stat1.executeQuery())
+                {
+                    if (rs1.next())
+                    {
+                        int key = rs1.getInt(_userTableKey);
+                        String credentials = rs1.getString(_userTablePasswordField);
+
+                        return new JDBCKnownUser (username, Credential.getCredential(credentials), key);
+                    }
+                }
+            }
+        }
+        catch (SQLException e)
+        {
+            LOG.warn("UserRealm " + getName() + " could not load user information from database", e);
+            closeConnection();
+        }
+        
+        return null;
+    }
+
+    
+    
+    /** 
+     * @see org.eclipse.jetty.security.MappedLoginService#loadRoleInfo(org.eclipse.jetty.security.MappedLoginService.KnownUser)
+     */
+    public String[] loadRoleInfo (KnownUser user)
+    {
+        JDBCKnownUser jdbcUser = (JDBCKnownUser)user;
+        
+        try
+        {
+            if (null == _con) 
+                connectDatabase();
+
+            if (null == _con) 
+                throw new SQLException("Can't connect to database");
+            
+            
+            List<String> roles = new ArrayList<String>();
+
+            try (PreparedStatement stat2 = _con.prepareStatement(_roleSql))
+            {
+                stat2.setInt(1, jdbcUser.getUserKey());
+                try (ResultSet rs2 = stat2.executeQuery())
+                {
+                    while (rs2.next())
+                        roles.add(rs2.getString(_roleTableRoleField));
+                    return roles.toArray(new String[roles.size()]);
+                }
+            }
+        }
+        catch (SQLException e)
+        {
+            LOG.warn("UserRealm " + getName() + " could not load user information from database", e);
+            closeConnection();
+        }
+        
+        return null;
     }
     
 
@@ -294,5 +381,4 @@ public class JDBCLoginService extends MappedLoginService
         }
         _con = null;
     }
-
 }

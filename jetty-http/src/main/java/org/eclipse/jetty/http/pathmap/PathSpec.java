@@ -16,7 +16,7 @@
 //  ========================================================================
 //
 
-package org.eclipse.jetty.websocket.server.pathmap;
+package org.eclipse.jetty.http.pathmap;
 
 /**
  * The base PathSpec, what all other path specs are based on
@@ -119,7 +119,7 @@ public abstract class PathSpec implements Comparable<PathSpec>
      * 
      * @return the as-provided path spec
      */
-    public String getPathSpec()
+    public String getDeclaration()
     {
         return pathSpec;
     }

@@ -16,7 +16,7 @@
 //  ========================================================================
 //
 
-package org.eclipse.jetty.websocket.server.pathmap;
+package org.eclipse.jetty.http.pathmap;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -30,7 +30,6 @@ import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.component.Dumpable;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
-import org.eclipse.jetty.websocket.server.pathmap.PathMappings.MappedResource;
 
 /**
  * Path Mappings of PathSpec to Resource.
@@ -42,88 +41,10 @@ import org.eclipse.jetty.websocket.server.pathmap.PathMappings.MappedResource;
 @ManagedObject("Path Mappings")
 public class PathMappings<E> implements Iterable<MappedResource<E>>, Dumpable
 {
-    @ManagedObject("Mapped Resource")
-    public static class MappedResource<E> implements Comparable<MappedResource<E>>
-    {
-        private final PathSpec pathSpec;
-        private final E resource;
-
-        public MappedResource(PathSpec pathSpec, E resource)
-        {
-            this.pathSpec = pathSpec;
-            this.resource = resource;
-        }
-
-        /**
-         * Comparison is based solely on the pathSpec
-         */
-        @Override
-        public int compareTo(MappedResource<E> other)
-        {
-            return this.pathSpec.compareTo(other.pathSpec);
-        }
-
-        @Override
-        public boolean equals(Object obj)
-        {
-            if (this == obj)
-            {
-                return true;
-            }
-            if (obj == null)
-            {
-                return false;
-            }
-            if (getClass() != obj.getClass())
-            {
-                return false;
-            }
-            MappedResource<?> other = (MappedResource<?>)obj;
-            if (pathSpec == null)
-            {
-                if (other.pathSpec != null)
-                {
-                    return false;
-                }
-            }
-            else if (!pathSpec.equals(other.pathSpec))
-            {
-                return false;
-            }
-            return true;
-        }
-
-        @ManagedAttribute(value = "path spec", readonly = true)
-        public PathSpec getPathSpec()
-        {
-            return pathSpec;
-        }
-
-        @ManagedAttribute(value = "resource", readonly = true)
-        public E getResource()
-        {
-            return resource;
-        }
-
-        @Override
-        public int hashCode()
-        {
-            final int prime = 31;
-            int result = 1;
-            result = (prime * result) + ((pathSpec == null)?0:pathSpec.hashCode());
-            return result;
-        }
-
-        @Override
-        public String toString()
-        {
-            return String.format("MappedResource[pathSpec=%s,resource=%s]",pathSpec,resource);
-        }
-    }
-
     private static final Logger LOG = Log.getLogger(PathMappings.class);
     private List<MappedResource<E>> mappings = new ArrayList<MappedResource<E>>();
     private MappedResource<E> defaultResource = null;
+    private MappedResource<E> rootResource = null;
 
     @Override
     public String dump()
@@ -142,14 +63,54 @@ public class PathMappings<E> implements Iterable<MappedResource<E>>, Dumpable
     {
         return mappings;
     }
-    
+
     public void reset()
     {
         mappings.clear();
     }
+    
+    /**
+     * Return a list of MappedResource matches for the specified path.
+     * 
+     * @param path the path to return matches on
+     * @return the list of mapped resource the path matches on
+     */
+    public List<MappedResource<E>> getMatches(String path)
+    {
+        boolean matchRoot = "/".equals(path);
+        
+        List<MappedResource<E>> ret = new ArrayList<>();
+        int len = mappings.size();
+        for (int i = 0; i < len; i++)
+        {
+            MappedResource<E> mr = mappings.get(i);
+
+            switch (mr.getPathSpec().group)
+            {
+                case ROOT:
+                    if (matchRoot)
+                        ret.add(mr);
+                    break;
+                case DEFAULT:
+                    if (matchRoot || mr.getPathSpec().matches(path))
+                        ret.add(mr);
+                    break;
+                default:
+                    if (mr.getPathSpec().matches(path))
+                        ret.add(mr);
+                    break;
+            }
+        }
+        return ret;
+    }
 
     public MappedResource<E> getMatch(String path)
     {
+        if (path.equals("/") && rootResource != null)
+        {
+            return rootResource;
+        }
+        
         int len = mappings.size();
         for (int i = 0; i < len; i++)
         {
@@ -168,14 +129,22 @@ public class PathMappings<E> implements Iterable<MappedResource<E>>, Dumpable
         return mappings.iterator();
     }
 
+    @SuppressWarnings("incomplete-switch")
     public void put(PathSpec pathSpec, E resource)
     {
         MappedResource<E> entry = new MappedResource<>(pathSpec,resource);
-        if (pathSpec.group == PathSpecGroup.DEFAULT)
+        switch (pathSpec.group)
         {
-            defaultResource = entry;
+            case DEFAULT:
+                defaultResource = entry;
+                break;
+            case ROOT:
+                rootResource = entry;
+                break;
         }
-        // TODO: warning on replacement of existing mapping?
+        
+        // TODO: add warning when replacing an existing pathspec?
+        
         mappings.add(entry);
         if (LOG.isDebugEnabled())
             LOG.debug("Added {} to {}",entry,this);

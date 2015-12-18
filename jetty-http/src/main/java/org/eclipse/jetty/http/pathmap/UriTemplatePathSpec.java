@@ -16,7 +16,7 @@
 //  ========================================================================
 //
 
-package org.eclipse.jetty.websocket.jsr356.server.pathmap;
+package org.eclipse.jetty.http.pathmap;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,30 +29,24 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import javax.websocket.server.PathParam;
-import javax.websocket.server.ServerEndpoint;
-
 import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
-import org.eclipse.jetty.websocket.server.pathmap.PathSpecGroup;
-import org.eclipse.jetty.websocket.server.pathmap.RegexPathSpec;
 
 /**
- * PathSpec for WebSocket &#064;{@link ServerEndpoint} declarations with support for URI templates and &#064;{@link PathParam} annotations
+ * PathSpec for URI Template based declarations
  * 
- * @see javax.websocket spec (JSR-356) Section 3.1.1 URI Mapping
  * @see <a href="https://tools.ietf.org/html/rfc6570">URI Templates (Level 1)</a>
  */
-public class WebSocketPathSpec extends RegexPathSpec
+public class UriTemplatePathSpec extends RegexPathSpec
 {
-    private static final Logger LOG = Log.getLogger(WebSocketPathSpec.class);
+    private static final Logger LOG = Log.getLogger(UriTemplatePathSpec.class);
     
     private static final Pattern VARIABLE_PATTERN = Pattern.compile("\\{(.*)\\}");
     /** Reserved Symbols in URI Template variable */
     private static final String VARIABLE_RESERVED = ":/?#[]@" + // gen-delims
                                                     "!$&'()*+,;="; // sub-delims
-    /** Allowed Symboles in a URI Template variable */
+    /** Allowed Symbols in a URI Template variable */
     private static final String VARIABLE_SYMBOLS="-._";
     private static final Set<String> FORBIDDEN_SEGMENTS;
 
@@ -66,12 +60,12 @@ public class WebSocketPathSpec extends RegexPathSpec
 
     private String variables[];
 
-    public WebSocketPathSpec(String pathParamSpec)
+    public UriTemplatePathSpec(String rawSpec)
     {
         super();
-        Objects.requireNonNull(pathParamSpec,"Path Param Spec cannot be null");
+        Objects.requireNonNull(rawSpec,"Path Param Spec cannot be null");
 
-        if ("".equals(pathParamSpec) || "/".equals(pathParamSpec))
+        if ("".equals(rawSpec) || "/".equals(rawSpec))
         {
             super.pathSpec = "/";
             super.pattern = Pattern.compile("^/$");
@@ -82,37 +76,37 @@ public class WebSocketPathSpec extends RegexPathSpec
             return;
         }
 
-        if (pathParamSpec.charAt(0) != '/')
+        if (rawSpec.charAt(0) != '/')
         {
             // path specs must start with '/'
             StringBuilder err = new StringBuilder();
             err.append("Syntax Error: path spec \"");
-            err.append(pathParamSpec);
+            err.append(rawSpec);
             err.append("\" must start with '/'");
             throw new IllegalArgumentException(err.toString());
         }
 
         for (String forbidden : FORBIDDEN_SEGMENTS)
         {
-            if (pathParamSpec.contains(forbidden))
+            if (rawSpec.contains(forbidden))
             {
                 StringBuilder err = new StringBuilder();
                 err.append("Syntax Error: segment ");
                 err.append(forbidden);
                 err.append(" is forbidden in path spec: ");
-                err.append(pathParamSpec);
+                err.append(rawSpec);
                 throw new IllegalArgumentException(err.toString());
             }
         }
 
-        this.pathSpec = pathParamSpec;
+        this.pathSpec = rawSpec;
 
         StringBuilder regex = new StringBuilder();
         regex.append('^');
 
         List<String> varNames = new ArrayList<>();
         // split up into path segments (ignoring the first slash that will always be empty)
-        String segments[] = pathParamSpec.substring(1).split("/");
+        String segments[] = rawSpec.substring(1).split("/");
         char segmentSignature[] = new char[segments.length];
         this.pathDepth = segments.length;
         for (int i = 0; i < segments.length; i++)
@@ -131,7 +125,7 @@ public class WebSocketPathSpec extends RegexPathSpec
                     err.append("Syntax Error: variable ");
                     err.append(variable);
                     err.append(" is duplicated in path spec: ");
-                    err.append(pathParamSpec);
+                    err.append(rawSpec);
                     throw new IllegalArgumentException(err.toString());
                 }
 
@@ -150,7 +144,7 @@ public class WebSocketPathSpec extends RegexPathSpec
                 err.append("Syntax Error: variable ");
                 err.append(mat.group());
                 err.append(" must exist as entire path segment: ");
-                err.append(pathParamSpec);
+                err.append(rawSpec);
                 throw new IllegalArgumentException(err.toString());
             }
             else if ((segment.indexOf('{') >= 0) || (segment.indexOf('}') >= 0))
@@ -160,7 +154,7 @@ public class WebSocketPathSpec extends RegexPathSpec
                 err.append("Syntax Error: invalid path segment /");
                 err.append(segment);
                 err.append("/ variable declaration incomplete: ");
-                err.append(pathParamSpec);
+                err.append(rawSpec);
                 throw new IllegalArgumentException(err.toString());
             }
             else if (segment.indexOf('*') >= 0)
@@ -169,8 +163,8 @@ public class WebSocketPathSpec extends RegexPathSpec
                 StringBuilder err = new StringBuilder();
                 err.append("Syntax Error: path segment /");
                 err.append(segment);
-                err.append("/ contains a wildcard symbol (not supported by javax.websocket): ");
-                err.append(pathParamSpec);
+                err.append("/ contains a wildcard symbol (not supported by this uri-template implementation): ");
+                err.append(rawSpec);
                 throw new IllegalArgumentException(err.toString());
             }
             else
@@ -192,7 +186,7 @@ public class WebSocketPathSpec extends RegexPathSpec
         }
         
         // Handle trailing slash (which is not picked up during split)
-        if(pathParamSpec.charAt(pathParamSpec.length()-1) == '/')
+        if(rawSpec.charAt(rawSpec.length()-1) == '/')
         {
             regex.append('/');
         }
