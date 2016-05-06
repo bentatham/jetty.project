@@ -464,33 +464,33 @@ public class DefaultServlet extends HttpServlet implements ResourceFactory
             if (LOG.isDebugEnabled())
                 LOG.info("content={}",content);
             
-            // Not found?
-            if (content==null || !content.getResource().exists())
+            if (content == null || !content.getResource().exists())
             {
-                if (gzippable)
+                if (gzippable && doesClientAcceptGzip(request))
                 {
                     HttpContent gzip_content = _contentFactory.getContent(pathInContext + ".gz");
-                    // Tell caches that response may vary by accept-encoding
-                    response.addHeader(HttpHeader.VARY.asString(), HttpHeader.ACCEPT_ENCODING.asString());
-    
-                    if (doesClientAcceptGzip(request))
+                    if (gzip_content != null)
                     {
-                      if (LOG.isDebugEnabled())
-                      {
-                        LOG.debug("gzip={}", gzip_content);
-                      }
-                      response.setHeader(HttpHeader.CONTENT_ENCODING.asString(), "gzip");
-                      content = gzip_content;
-                    }
-                    else
-                    {
-                        if (included)
+                        // Tell caches that response may vary by accept-encoding
+                        response.addHeader(HttpHeader.VARY.asString(), HttpHeader.ACCEPT_ENCODING.asString());
+
+                        if (LOG.isDebugEnabled())
                         {
-                            throw new FileNotFoundException("!" + pathInContext);
+                            LOG.debug("gzip={}", gzip_content);
                         }
-                        response.sendError(HttpServletResponse.SC_NOT_FOUND);
-                        return;
+                        response.setHeader(HttpHeader.CONTENT_ENCODING.asString(), "gzip");
+                        content = gzip_content;
                     }
+                }
+
+                if (content == null || !content.getResource().exists())
+                {
+                    if (included)
+                    {
+                        throw new FileNotFoundException("!" + pathInContext);
+                    }
+                    response.sendError(HttpServletResponse.SC_NOT_FOUND);
+                    return;
                 }
             }
             
